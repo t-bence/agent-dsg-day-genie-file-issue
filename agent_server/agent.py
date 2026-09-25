@@ -1,10 +1,14 @@
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack
-from datetime import datetime
-from typing import AsyncGenerator
 
 import mlflow
-from agents import Agent, Runner, function_tool, set_default_openai_api, set_default_openai_client
+from agents import (
+    Agent,
+    Runner,
+    set_default_openai_api,
+    set_default_openai_client,
+)
 from agents.tracing import set_trace_processors
 from databricks.sdk import WorkspaceClient
 from databricks_openai import AsyncDatabricksOpenAI
@@ -17,6 +21,9 @@ from mlflow.types.responses import (
 )
 
 from agent_server.history import normalize_history_items
+from agent_server.tools.list_files import get_files_in_volume
+from agent_server.tools.pptx_reader import parse_pptx
+from agent_server.tools.time_tools import get_current_time
 from agent_server.utils import (
     build_mcp_url,
     get_session_id,
@@ -34,15 +41,11 @@ mlflow.openai.autolog()
 logging.getLogger("mlflow.utils.autologging_utils").setLevel(logging.ERROR)
 
 
-@function_tool
-def get_current_time() -> str:
-    """Get the current date and time."""
-    return datetime.now().isoformat()
-
-
 async def init_mcp_server(workspace_client: WorkspaceClient):
     return McpServer(
-        url=build_mcp_url("/api/2.0/mcp/functions/system/ai", workspace_client=workspace_client),
+        url=build_mcp_url(
+            "/api/2.0/mcp/functions/system/ai", workspace_client=workspace_client
+        ),
         name="system.ai UC function MCP server",
         workspace_client=workspace_client,
     )
@@ -67,10 +70,14 @@ async def connect_healthy_mcp_servers(
         name = getattr(server, "name", "MCP server")
         try:
             connected = await stack.enter_async_context(server)
-            await connected.list_tools()  # forces the connectivity + authorization check now
+            await (
+                connected.list_tools()
+            )  # forces the connectivity + authorization check now
             healthy.append(connected)
         except Exception:
-            logger.warning("MCP server %r unavailable; continuing without it.", name, exc_info=True)
+            logger.warning(
+                "MCP server %r unavailable; continuing without it.", name, exc_info=True
+            )
             unavailable.append(name)
     return healthy, unavailable
 
@@ -79,8 +86,8 @@ def create_agent(mcp_servers: list[McpServer] | None = None) -> Agent:
     return Agent(
         name="Agent",
         instructions="You are a helpful assistant.",
-        model="databricks-gpt-5-2",
-        tools=[get_current_time],
+        model="databricks-claude-opus-5",
+        tools=[get_current_time, get_files_in_volume, parse_pptx],
         mcp_servers=mcp_servers or [],
     )
 
@@ -102,7 +109,9 @@ async def invoke_handler(request: ResponsesAgentRequest) -> ResponsesAgentRespon
         agent = create_agent()
         messages = normalize_history_items([i.model_dump() for i in request.input])
         result = await Runner.run(agent, messages)
-        return ResponsesAgentResponse(output=[item.to_input_item() for item in result.new_items])
+        return ResponsesAgentResponse(
+            output=[item.to_input_item() for item in result.new_items]
+        )
 
 
 @stream()

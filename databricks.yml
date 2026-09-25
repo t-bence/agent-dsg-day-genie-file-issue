@@ -27,20 +27,20 @@ resources:
       resources:
         - name: 'experiment'
           experiment:
-            experiment_id: ""
+            experiment_id: "2028506881011077"
             permission: 'CAN_MANAGE'
 
-targets:
-  dev:
-    mode: development
-    default: true
-    # workspace:
-    #   host: https://...
+      # Scopes for the end-user token that the tools use on behalf of the user
+      user_api_scopes:
+        - files.files
 
+targets:
   prod:
     mode: production
-    # workspace:
-    #   host: https://...
+    default: true
+    workspace:
+      host: https://dbc-59bc96e6-d850.cloud.databricks.com
+      root_path: /Workspace/Users/bence.toth@datapao.com/.bundle/${bundle.name}/${bundle.target}
     resources:
       apps:
         agent_openai_agents_sdk:
