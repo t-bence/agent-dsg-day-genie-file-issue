@@ -34,9 +34,9 @@ from agent_server.tools.pdf_reader import (
     pdf_analyze_pages,
     pdf_overview,
     pdf_read_pages,
-    pdf_search,
 )
-from agent_server.tools.pptx_reader import parse_pptx
+from agent_server.tools.pptx_reader import read_slides
+from agent_server.tools.search import search_documents
 from agent_server.tools.time_tools import get_current_time
 from agent_server.utils import (
     build_mcp_url,
@@ -99,21 +99,27 @@ async def connect_healthy_mcp_servers(
 def create_agent(mcp_servers: list[McpServer] | None = None) -> Agent:
     return Agent(
         name="Agent",
-        instructions="You are a helpful assistant. When you get a question you cannot answer, use your tools to look up the accessible files for information.",
+        instructions=(
+            "You are a helpful assistant. When you get a question you cannot answer, "
+            "use your tools to look up the accessible files for information. "
+            "For PPTX and PDF files, call search_documents first, then read only the slides "
+            "or pages from the best hits with read_slides or pdf_read_pages. "
+            "Never read a whole presentation or document. For Excel files, use the excel_* tools."
+        ),
         model="databricks-claude-opus-5",
         # With thinking on, Claude streams reasoning blocks as a list, which the Agents SDK chat completions path cannot parse
         model_settings=ModelSettings(extra_body={"thinking": {"type": "disabled"}}),
         tools=[
             get_current_time,
             get_files_in_volume,
-            parse_pptx,
+            search_documents,
+            read_slides,
             analyze_image,
             excel_workbook_overview,
             excel_find,
             excel_read_range,
             excel_trace_precedents,
             pdf_overview,
-            pdf_search,
             pdf_read_pages,
             pdf_analyze_pages,
         ],

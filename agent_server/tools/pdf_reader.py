@@ -13,7 +13,6 @@ MAX_CACHED_PDFS = 5
 MAX_READ_PAGES = 15
 MAX_READ_CHARS = 60000
 MAX_ANALYZE_PAGES = 5
-MAX_SEARCH_RESULTS = 30
 LOW_TEXT_CHARS = 300
 
 
@@ -21,14 +20,41 @@ LOW_TEXT_CHARS = 300
 class ParsedPdf:
     reader: PdfReader
     page_texts: list[str]
+    # The table of contents section that each page belongs to, used as the page title in search results
+    page_sections: list[str]
+
+
+def _outline_entries(reader: PdfReader, items: list) -> list[tuple[int, str]]:
+    """Flatten the table of contents into (page index, title) pairs."""
+    entries = []
+    for item in items:
+        if isinstance(item, list):
+            entries += _outline_entries(reader, item)
+        else:
+            page_index = reader.get_destination_page_number(item)
+            if page_index is not None:
+                entries.append((page_index, item.title))
+    return entries
+
+
+def _page_sections(reader: PdfReader) -> list[str]:
+    entries = sorted(_outline_entries(reader, reader.outline))
+    sections = []
+    current = "(no section)"
+    for page_index in range(len(reader.pages)):
+        while entries and entries[0][0] <= page_index:
+            current = entries.pop(0)[1]
+        sections.append(current)
+    return sections
 
 
 def _parse_pdf(data: bytes) -> ParsedPdf:
     reader = PdfReader(io.BytesIO(data))
-    return ParsedPdf(reader, [page.extract_text() or "" for page in reader.pages])
+    page_texts = [page.extract_text() or "" for page in reader.pages]
+    return ParsedPdf(reader, page_texts, _page_sections(reader))
 
 
-_cache = VolumeFileCache((".pdf",), _parse_pdf, MAX_CACHED_PDFS)
+pdf_cache = VolumeFileCache((".pdf",), _parse_pdf, MAX_CACHED_PDFS)
 
 
 def _check_pages(pdf: ParsedPdf, first_page: int, last_page: int, max_pages: int) -> None:
@@ -59,7 +85,7 @@ async def pdf_overview(filename: str) -> str:
     or scans; use pdf_analyze_pages to look at them. Call this first for a new PDF.
     Use a file name returned by get_files_in_volume.
     """
-    pdf = await _cache.get(filename)
+    pdf = await pdf_cache.get(filename)
     reader = pdf.reader
     metadata = {key.lstrip("/"): str(value) for key, value in (reader.metadata or {}).items()}
     lines = [
@@ -76,35 +102,13 @@ async def pdf_overview(filename: str) -> str:
 
 
 @function_tool
-async def pdf_search(filename: str, text: str) -> str:
-    """Find the pages of a PDF that contain a phrase (case-insensitive).
-
-    Returns up to 30 matches with the page number and the surrounding text.
-    Use this to find the right pages before reading them.
-    """
-    pdf = await _cache.get(filename)
-    needle = text.lower()
-    matches = []
-    for page_number, page_text in enumerate(pdf.page_texts, 1):
-        flat = " ".join(page_text.split())
-        start = flat.lower().find(needle)
-        while start != -1:
-            snippet = flat[max(0, start - 150) : start + len(needle) + 150]
-            matches.append(f"Page {page_number}: ...{snippet}...")
-            if len(matches) >= MAX_SEARCH_RESULTS:
-                return "\n".join(matches) + f"\n(Stopped at {MAX_SEARCH_RESULTS} matches. Use a more specific phrase.)"
-            start = flat.lower().find(needle, start + len(needle))
-    return "\n".join(matches) if matches else f"No pages contain {text!r}."
-
-
-@function_tool
 async def pdf_read_pages(filename: str, first_page: int, last_page: int) -> str:
     """Return the extracted text of a page range of a PDF (page numbers start at 1).
 
     Reads at most 15 pages per call. Tables lose their layout in extracted text,
     so for tables where the columns matter, and for charts, use pdf_analyze_pages instead.
     """
-    pdf = await _cache.get(filename)
+    pdf = await pdf_cache.get(filename)
     _check_pages(pdf, first_page, last_page, MAX_READ_PAGES)
     parts = []
     total = 0
@@ -126,7 +130,7 @@ async def pdf_analyze_pages(filename: str, first_page: int, last_page: int, ques
     Analyzes at most 5 pages per call. The question says what to look for,
     for example "Extract Table 3 as a markdown table."
     """
-    pdf = await _cache.get(filename)
+    pdf = await pdf_cache.get(filename)
     _check_pages(pdf, first_page, last_page, MAX_ANALYZE_PAGES)
     writer = PdfWriter()
     for page_number in range(first_page, last_page + 1):
