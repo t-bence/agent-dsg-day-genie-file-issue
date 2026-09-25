@@ -22,6 +22,12 @@ from mlflow.types.responses import (
 )
 
 from agent_server.history import normalize_history_items
+from agent_server.tools.excel_reader import (
+    excel_find,
+    excel_read_range,
+    excel_trace_precedents,
+    excel_workbook_overview,
+)
 from agent_server.tools.image_reader import analyze_image
 from agent_server.tools.list_files import get_files_in_volume
 from agent_server.tools.pptx_reader import parse_pptx
@@ -87,11 +93,20 @@ async def connect_healthy_mcp_servers(
 def create_agent(mcp_servers: list[McpServer] | None = None) -> Agent:
     return Agent(
         name="Agent",
-        instructions="You are a helpful assistant.",
+        instructions="You are a helpful assistant. When you get a question you cannot answer, use your tools to look up the accessible files for information.",
         model="databricks-claude-opus-5",
         # With thinking on, Claude streams reasoning blocks as a list, which the Agents SDK chat completions path cannot parse
         model_settings=ModelSettings(extra_body={"thinking": {"type": "disabled"}}),
-        tools=[get_current_time, get_files_in_volume, parse_pptx, analyze_image],
+        tools=[
+            get_current_time,
+            get_files_in_volume,
+            parse_pptx,
+            analyze_image,
+            excel_workbook_overview,
+            excel_find,
+            excel_read_range,
+            excel_trace_precedents,
+        ],
         mcp_servers=mcp_servers or [],
     )
 
