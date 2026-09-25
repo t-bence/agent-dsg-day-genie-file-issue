@@ -30,6 +30,12 @@ from agent_server.tools.excel_reader import (
 )
 from agent_server.tools.image_reader import analyze_image
 from agent_server.tools.list_files import get_files_in_volume
+from agent_server.tools.pdf_reader import (
+    pdf_analyze_pages,
+    pdf_overview,
+    pdf_read_pages,
+    pdf_search,
+)
 from agent_server.tools.pptx_reader import parse_pptx
 from agent_server.tools.time_tools import get_current_time
 from agent_server.utils import (
@@ -106,6 +112,10 @@ def create_agent(mcp_servers: list[McpServer] | None = None) -> Agent:
             excel_find,
             excel_read_range,
             excel_trace_precedents,
+            pdf_overview,
+            pdf_search,
+            pdf_read_pages,
+            pdf_analyze_pages,
         ],
         mcp_servers=mcp_servers or [],
     )

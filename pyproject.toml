@@ -18,6 +18,7 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-grpc>=1.25.0",
     "python-pptx==1.0.2",
     "openpyxl>=3.1.5",
+    "pypdf>=6.19.0",
 ]
 
 [build-system]

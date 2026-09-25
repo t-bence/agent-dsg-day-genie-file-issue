@@ -12,8 +12,7 @@ from openpyxl.formula.tokenizer import Token
 from openpyxl.utils import get_column_letter, range_boundaries
 from openpyxl.workbook.workbook import Workbook
 
-from agent_server.tools.list_files import VOLUME_URI
-from agent_server.utils import get_user_workspace_client
+from agent_server.tools.volume_files import VolumeFileCache
 
 MAX_CACHED_WORKBOOKS = 2
 MAX_RANGE_CELLS = 1500
@@ -28,54 +27,26 @@ EXTERNAL_RE = re.compile(r"\[(\d+)\]")
 
 @dataclass
 class CachedWorkbook:
-    last_modified: str | None
     formulas: Workbook
     values: Workbook
     external_ref_counts: dict[int, int] | None = None
 
 
-_cache: dict[str, CachedWorkbook] = {}
-_load_lock = asyncio.Lock()
-
-
-def _parse_workbooks(data: bytes) -> tuple[Workbook, Workbook]:
+def _parse_workbooks(data: bytes) -> CachedWorkbook:
     # openpyxl warns about unsupported Excel extensions (data validation, conditional formatting)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         formulas = openpyxl.load_workbook(io.BytesIO(data), data_only=False)
         # data_only=True returns the values that Excel stored when the file was last saved
         values = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
-    return formulas, values
+    return CachedWorkbook(formulas, values)
+
+
+_cache = VolumeFileCache((".xlsx", ".xlsm"), _parse_workbooks, MAX_CACHED_WORKBOOKS)
 
 
 async def _get_workbook(filename: str) -> CachedWorkbook:
-    if "/" in filename:
-        raise ValueError("Pass only the file name, without a path.")
-    if not filename.lower().endswith((".xlsx", ".xlsm")):
-        raise ValueError(f"Unsupported file type: {filename}. Supported types: .xlsx, .xlsm.")
-
-    path = f"{VOLUME_URI}/{filename}"
-    # Runs on behalf of the end user on every call, so the cache never skips the user's access check
-    client = get_user_workspace_client()
-    metadata = await asyncio.to_thread(client.files.get_metadata, path)
-
-    async with _load_lock:
-        cached = _cache.get(filename)
-        if cached is not None and cached.last_modified == metadata.last_modified:
-            return cached
-
-        response = await asyncio.to_thread(client.files.download, path)
-        if response.contents is None:
-            raise ValueError(f"The file {filename} is empty.")
-        data = await asyncio.to_thread(response.contents.read)
-        formulas, values = await asyncio.to_thread(_parse_workbooks, data)
-
-        _cache.pop(filename, None)
-        while len(_cache) >= MAX_CACHED_WORKBOOKS:
-            _cache.pop(next(iter(_cache)))
-        cached = CachedWorkbook(metadata.last_modified, formulas, values)
-        _cache[filename] = cached
-        return cached
+    return await _cache.get(filename)
 
 
 def _formula_text(raw: Any) -> str | None:
