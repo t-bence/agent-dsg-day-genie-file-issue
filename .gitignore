@@ -224,3 +224,4 @@ sketch
 **/.env
 **/.env.local
 load-test-runs/
+mlflow.db
