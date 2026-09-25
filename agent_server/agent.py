@@ -5,6 +5,7 @@ from contextlib import AsyncExitStack
 import mlflow
 from agents import (
     Agent,
+    ModelSettings,
     Runner,
     set_default_openai_api,
     set_default_openai_client,
@@ -87,6 +88,8 @@ def create_agent(mcp_servers: list[McpServer] | None = None) -> Agent:
         name="Agent",
         instructions="You are a helpful assistant.",
         model="databricks-claude-opus-5",
+        # With thinking on, Claude streams reasoning blocks as a list, which the Agents SDK chat completions path cannot parse
+        model_settings=ModelSettings(extra_body={"thinking": {"type": "disabled"}}),
         tools=[get_current_time, get_files_in_volume, parse_pptx],
         mcp_servers=mcp_servers or [],
     )
